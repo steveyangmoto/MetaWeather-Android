@@ -32,7 +32,7 @@ public class WeatherActivity extends Activity implements WeatherView{
         weatherListView.setEmptyView(findViewById(R.id.empty_list_view));
         adapter = new WeatherListAdapter(this.getApplicationContext(), new ArrayList<DailyWeather>());
         weatherListView.setAdapter(adapter);
-        presenter = new WeatherPresenterImpl(this,this);
+        presenter = new WeatherPresenterImpl(this);
         presenter.onActivityCreate(getIntent());
     }
 

@@ -9,9 +9,6 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.HandlerThread;
-import android.os.Looper;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.util.Log;
@@ -21,17 +18,14 @@ import com.elitemobiletechnology.metaweather.MwConstants;
 import com.elitemobiletechnology.metaweather.WeatherActivity;
 import com.elitemobiletechnology.metaweather.WeatherApplication;
 import com.elitemobiletechnology.metaweather.model.KeywordHelper;
-import com.elitemobiletechnology.metaweather.model.WeatherApi;
+import com.elitemobiletechnology.metaweather.model.MetaWeatherApi;
 import com.elitemobiletechnology.metaweather.model.MetaWeatherApiImpl;
 import com.elitemobiletechnology.metaweather.view.MainView;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
-
-import static android.content.Context.MODE_PRIVATE;
 
 public class MainPresenterImpl implements MainPresenter,LocationListener{
     private static final String TAG = "MainPresenterImpl";
@@ -40,18 +34,13 @@ public class MainPresenterImpl implements MainPresenter,LocationListener{
     private LocationManager mLocationManager;
     private WeakReference<Activity> activityWeakReference;
     private LocationManager locationManager;
-    private Handler weatherApiHandler;
-    private WeatherApi weatherApi;
+    private MetaWeatherApi weatherApi;
     private KeywordHelper keywordHelper;
     private List<String> keywordList;
 
     public MainPresenterImpl(Activity activity, MainView mainView){
         this.mainView = mainView;
         activityWeakReference = new WeakReference<>(activity);
-        HandlerThread handlerThread = new HandlerThread("MyHandlerThread");
-        handlerThread.start();
-        Looper looper = handlerThread.getLooper();
-        weatherApiHandler = new Handler(looper);
         weatherApi = new MetaWeatherApiImpl();
         keywordHelper = new KeywordHelper(WeatherApplication.getAppContext());
         keywordList = new ArrayList<>();
@@ -69,33 +58,28 @@ public class MainPresenterImpl implements MainPresenter,LocationListener{
 
     @Override
     public void onSearchButtonClicked(final String keyword) {
-
-        weatherApiHandler.post(new Runnable() {
+        final boolean needToUpdate;
+        if(!keywordList.contains(keyword)) {
+            keywordHelper.saveKeyword(keyword);
+            keywordList.add(keyword);
+            needToUpdate = true;
+        }else{
+            needToUpdate = false;
+        }
+        weatherApi.getLocationByName(keyword, new MetaWeatherApi.OnLocationResultListener() {
             @Override
-            public void run() {
-                final boolean needToUpdate;
-                if(!keywordList.contains(keyword)) {
-                    keywordHelper.saveKeyword(keyword);
-                    keywordList.add(keyword);
-                    needToUpdate = true;
-                }else{
-                    needToUpdate = false;
+            public void onLocationResult(List<com.elitemobiletechnology.metaweather.model.Location> locations) {
+                mainView.updateLocationList(locations);
+                if(needToUpdate) {
+                    mainView.updateSearchHistory(keywordList);
                 }
-                final com.elitemobiletechnology.metaweather.model.Location[] locations = weatherApi.getLocationByName(keyword);
-                if(activityWeakReference.get()!=null){
-                    activityWeakReference.get().runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            if(locations!=null) {
-                                mainView.updateLocationList(Arrays.asList(locations));
-                            }else {
-                                mainView.updateLocationList(new ArrayList<com.elitemobiletechnology.metaweather.model.Location>());
-                            }
-                            if(needToUpdate) {
-                                mainView.updateSearchHistory(keywordList);
-                            }
-                        }
-                    });
+            }
+
+            @Override
+            public void onError(MetaWeatherApi.GenericWeatherApiError error) {
+                mainView.updateLocationList(new ArrayList<com.elitemobiletechnology.metaweather.model.Location>());
+                if(needToUpdate) {
+                    mainView.updateSearchHistory(keywordList);
                 }
             }
         });
@@ -126,29 +110,23 @@ public class MainPresenterImpl implements MainPresenter,LocationListener{
     @Override
     public void destroy() {
         mainView = null;
-        weatherApiHandler.removeCallbacksAndMessages(null);
+        weatherApi.destroy();
     }
 
 
     @Override
     public void onLocationChanged(final Location location) {
         locationManager.removeUpdates(this);
-        weatherApiHandler.post(new Runnable() {
-            @Override
-            public void run() {
-               final com.elitemobiletechnology.metaweather.model.Location[] locations = weatherApi.getLocationByLatLong(location.getLatitude(),location.getLongitude());
-               if(locations!=null){
-                   if(activityWeakReference.get()!=null){
-                       activityWeakReference.get().runOnUiThread(new Runnable() {
-                           @Override
-                           public void run() {
-                               mainView.updateLocationList(Arrays.asList(locations));
-                           }
-                       });
-                   }
-               }
-            }
-        });
+        weatherApi.getLocationsByLatLong(location.getLatitude(), location.getLongitude(), new MetaWeatherApi.OnLocationResultListener() {
+           @Override
+           public void onLocationResult(List<com.elitemobiletechnology.metaweather.model.Location> locations) {
+               mainView.updateLocationList(locations);
+           }
+
+           @Override
+           public void onError(MetaWeatherApi.GenericWeatherApiError error) {
+           }
+       });
     }
 
     private void permissionCheck(){
